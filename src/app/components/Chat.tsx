@@ -19,24 +19,43 @@ export default function Chat() {
 
   const sendMessage = async () => {
     if (!input.trim()) return;
-
+  
     const userMessage: Message = { role: 'user', content: input };
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
-
-    // Simulate AI response (replace with API later)
+  
+    // Temporary loading message
     setMessages((prev) => [...prev, { role: 'bot', content: '...' }]);
-    setTimeout(() => {
-      setMessages((prev) => {
-        const newMessages = [...prev];
-        newMessages[newMessages.length - 1] = {
-          role: 'bot',
-          content: "This is a mock response from Sakura's AI. 🍜",
-        };
-        return newMessages;
+  
+    try {
+      const res = await fetch('http://localhost:8000/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: input }),
       });
-    }, 1000);
+  
+      const data = await res.json();
+  
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          role: 'bot',
+          content: data.reply,
+        };
+        return updated;
+      });
+    } catch (err) {
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          role: 'bot',
+          content: '⚠️ Error contacting AI server.',
+        };
+        return updated;
+      });
+    }
   };
+  
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800">
