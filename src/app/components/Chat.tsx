@@ -17,44 +17,93 @@ export default function Chat() {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const sendMessage = async () => {
-    if (!input.trim()) return;
-  
-    const userMessage: Message = { role: 'user', content: input };
-    setMessages((prev) => [...prev, userMessage]);
-    setInput('');
-  
-    // Temporary loading message
-    setMessages((prev) => [...prev, { role: 'bot', content: '...' }]);
-  
+  const [pendingOrder, setPendingOrder] = useState<{ item: string; quantity: number }[] | null>(null);
+
+const sendMessage = async () => {
+  if (!input.trim()) return;
+
+  const userMessage: Message = { role: 'user', content: input };
+  setMessages((prev) => [...prev, userMessage]);
+  setInput('');
+
+  // ✅ 1. Handle confirmation for a pending order
+  if (pendingOrder && ['yes', 'confirm', 'submit'].includes(input.toLowerCase())) {
+    const total = pendingOrder.reduce((sum, item) => sum + item.quantity * 10, 0);
     try {
-      const res = await fetch('http://localhost:8000/chat', {
+      const res = await fetch('http://localhost:8000/order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: input }),
+        body: JSON.stringify({ items: pendingOrder, total }),
       });
-  
       const data = await res.json();
-  
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = {
-          role: 'bot',
-          content: data.reply,
-        };
-        return updated;
-      });
-    } catch (err) {
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = {
-          role: 'bot',
-          content: '⚠️ Error contacting AI server.',
-        };
-        return updated;
-      });
+      setMessages((prev) => [...prev, { role: 'bot', content: data.message || '✅ Order submitted!' }]);
+      setPendingOrder(null);
+    } catch {
+      setMessages((prev) => [...prev, { role: 'bot', content: '⚠️ Failed to submit order.' }]);
     }
-  };
+    return;
+  }
+
+  // ✅ 2. Otherwise, normal message flow
+  setMessages((prev) => [...prev, { role: 'bot', content: '...' }]);
+
+  try {
+    const res = await fetch('http://localhost:8000/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: 'You are Sakura, a friendly restaurant assistant.' },
+          ...messages.map(m => ({
+            role: m.role === 'bot' ? 'assistant' : 'user',
+            content: m.content
+          })),
+          { role: 'user', content: input }
+        ]
+      }),
+    });
+
+    const data = await res.json();
+    let content = data.reply;
+
+    // 🕒 Ask for confirmation if pending_order is returned
+    if (data.pending_order && Array.isArray(data.pending_order)) {
+      setPendingOrder(data.pending_order);
+      content += '\n\nWould you like to confirm this order?';
+    }
+
+    // ✅ Confirmed order sent by GPT directly
+    if (data.order && Array.isArray(data.order)) {
+      const total = data.order.reduce((sum, item) => sum + item.quantity * 10, 0);
+      await fetch('http://localhost:8000/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: data.order, total }),
+      });
+      content += '\n✅ Your order has been submitted!';
+    }
+
+    setMessages((prev) => {
+      const updated = [...prev];
+      updated[updated.length - 1] = {
+        role: 'bot',
+        content,
+      };
+      return updated;
+    });
+  } catch {
+    setMessages((prev) => {
+      const updated = [...prev];
+      updated[updated.length - 1] = {
+        role: 'bot',
+        content: '⚠️ Error contacting AI server.',
+      };
+      return updated;
+    });
+  }
+};
+
+  
   
 
   return (
@@ -86,7 +135,7 @@ export default function Chat() {
         <div className="flex items-center gap-2">
         <input
             type="text"
-            className="flex-1 px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-2 focus:ring-gray-300 dark:focus:ring-gray-500
+            className="flex-1 px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-300 dark:focus:ring-gray-500
  text-sm"
             placeholder="Send a message..."
             value={input}
